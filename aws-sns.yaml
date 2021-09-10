@@ -138,3 +138,58 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: sns.amazonaws.com
       SourceArn: !Ref ConformitySNSTopic
+  ConformitySNSForwarderLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: ConformitySNSForwarder
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ConformitySNSForwarder}"
+      RetentionInDays: 14
+# not sure if this is necessary
+  LambdaLoggingPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "allow-lambda-logging"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub "arn:aws:logs:${AWS::Region}::${AWS::AccountId}:log-group:${ConformitySNSForwarderLogGroup}"
+              - !Sub "arn:aws:logs:${AWS::Region}::${AWS::AccountId}:log-group:${ConformitySNSForwarderLogGroup}:log-stream:*"
+      Roles:
+        - !Ref LambdaExecutionRole
+  ConformityMetrics:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ConformitySNSForwarderLogGroup
+      FilterPattern: '{ $.riskLevel = "MEDIUM" }'
+      MetricTransformations:
+        -
+          MetricValue: "1"
+          MetricNamespace: "Conformity/RiskLevel"
+          MetricName: "RiskLevelCount"
+  ConformityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ConformityRiskLevel
+      AlarmDescription: "Alarms when too many Risk Level = MEDIUM occur"
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+      MetricName: ConformityMetrics
+      Namespace: LambdaMetrics
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      Period: 300
+      Statistic: Sum
+      Threshold: 1
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "CloudConformityAlarmTopic"
+      Subscription:
+        - Endpoint: "johannes@guardrail.me"
+          Protocol: email
