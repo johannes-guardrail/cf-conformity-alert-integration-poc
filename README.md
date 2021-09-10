@@ -1,5 +1,5 @@
 # Conformity AWS integration
-receive rule alerts from Conformity via sns in CloudWatch
+receive rule alerts from Conformity via sns in CloudWatch through a Lambda function
 
 ## Requirements
 * you need to sign in at Conformity and create an API Key
