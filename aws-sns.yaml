@@ -85,3 +85,56 @@ Resources:
             Resource: !Ref ConformitySNSTopic
       Topics:
         - !Ref ConformitySNSTopic
+  LambdaSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ConformitySNSTopic
+      Endpoint: !GetAtt ConformitySNSForwarder.Arn
+      Protocol: lambda
+  ConformitySNSForwarder:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs12.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          console.log('Loading function');
+
+          exports.handler = function(event, context, callback) {
+            // console.log('Received event:', JSON.stringify(event, null, 4));
+
+            var message = event.Records[0].Sns.Message;
+            console.log('Message received from SNS:', message);
+            callback(null, "Success");
+          };
+      Description: Invoke a function during stack creation.
+      TracingConfig:
+        Mode: Active
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal: {Service: [lambda.amazonaws.com]}
+          Action: ['sts:AssumeRole']
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: PublishVersion
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action: ['lambda:PublishVersion']
+            Resource: '*'
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ConformitySNSForwarder.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref ConformitySNSTopic

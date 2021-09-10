@@ -28,3 +28,5 @@ access_key="aws-access-key"
 secret_key="aws-secret-key"
 sns_arn = "arn:aws:sns:us-west-2:111222333444:CloudConformity"
 ```
+
+Add the SNS ARN created by the cloudformation stack
