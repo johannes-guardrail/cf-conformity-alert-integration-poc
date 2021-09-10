@@ -1,0 +1,87 @@
+Resources:
+  ConformitySNSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: CloudConformitySNSEncryptionKey
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-consolepolicy-3
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Join 
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: 'arn:aws:iam::717210094962:root'
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+          - Sid: Allow attachment of persistent resources
+            Effect: Allow
+            Principal:
+              AWS: 'arn:aws:iam::717210094962:root'
+            Action:
+              - 'kms:CreateGrant'
+              - 'kms:ListGrants'
+              - 'kms:RevokeGrant'
+            Resource: '*'
+            Condition:
+               Bool:
+                 'kms:GrantIsForAWSResource': true
+  ConformitySNSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: 'alias/CloudConformitySNSEncryptionKey'
+      TargetKeyId: !Ref ConformitySNSKey
+  ConformitySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "CloudConformity"
+      KmsMasterKeyId: !Ref ConformitySNSKey
+  ConformitySNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Id: cloud-conformity-sns-topic-policy
+        Statement:
+          - Sid: Sid1
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Action:
+              - 'SNS:Publish'
+              - 'SNS:RemovePermission'
+              - 'SNS:SetTopicAttributes'
+              - 'SNS:DeleteTopic'
+              - 'SNS:ListSubscriptionsByTopic'
+              - 'SNS:GetTopicAttributes'
+              - 'SNS:Receive'
+              - 'SNS:AddPermission'
+              - 'SNS:Subscribe'
+            Resource: ''
+            Condition:
+              StringEquals:
+                'AWS:SourceOwner': !Ref 'AWS::AccountId'
+          - Sid: Sid2
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::717210094962:root
+            Action:
+              - 'SNS:Publish'
+            Resource: !Ref ConformitySNSTopic
+      Topics:
+        - !Ref ConformitySNSTopic
