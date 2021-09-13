@@ -15,8 +15,13 @@ aws cloudformation deploy \
   --stack-name Conformity-SNS  \
   --region us-west-2  \
   --template-file aws-sns.yaml \
+  --parameter-overrides AlarmEmail=johannes@guardrail.me \
   --capabilities CAPABILITY_IAM
 ```
+
+### Subscription confirmation
+
+The stack sets up a SNS which will ask you to confirm the email subscription of this topic. Please do not forget to confirm!
 
 ## Conformity Setup
 setup an AWS account on Conformity with this provider https://registry.terraform.io/providers/trendmicro/conformity/latest/docs/resources/conformity_aws_account
@@ -33,3 +38,7 @@ sns_arn = "arn:aws:sns:us-west-2:111222333444:CloudConformity"
 ```
 
 Add the SNS ARN created by the cloudformation stack
+
+## See results
+
+Trigger the bot manually in Conformity if it is not scheduled. The threshold is very low (3), so you should see Alarms

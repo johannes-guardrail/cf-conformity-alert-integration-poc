@@ -1,3 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Setup SNS/Lambda to parse Risk Levels from Conformity and trigger Alarm
+
+Parameters: 
+  AlarmEmail: 
+    Description: Email to send the alarm to
+    Type: String
+  ConformityMetricsNamespace: 
+    Description: "Conformity Metrics Namespace (default: Conformity/RiskLevel)"
+    Type: String
+    Default: "Conformity/RiskLevel"
+  ConformityMetricsName: 
+    Description: "Conformity Metrics Name (default: RiskLevelCount)"
+    Type: String
+    Default: "RiskLevelCount"
+  ConformityAlarmThreshold: 
+    Description: "Conformity Alarm Threshold (default: 3)"
+    Type: Number
+    Default: 3
+
 Resources:
   ConformitySNSKey:
     Type: AWS::KMS::Key
@@ -166,30 +186,30 @@ Resources:
     Type: AWS::Logs::MetricFilter
     Properties:
       LogGroupName: !Ref ConformitySNSForwarderLogGroup
-      FilterPattern: '{ $.riskLevel = "MEDIUM" }'
+      FilterPattern: '{ $.riskLevel = "VERY_HIGH" || $.riskLevel = "HIGH" }'
       MetricTransformations:
         -
           MetricValue: "1"
-          MetricNamespace: "Conformity/RiskLevel"
-          MetricName: "RiskLevelCount"
+          MetricNamespace: !Ref ConformityMetricsNamespace
+          MetricName: !Ref ConformityMetricsName
   ConformityAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: ConformityRiskLevel
-      AlarmDescription: "Alarms when too many Risk Level = MEDIUM occur"
+      AlarmDescription: "Alarms when too many VERY_HIGH or HIGH Risk Level"
       AlarmActions:
         - !Ref AlarmNotificationTopic
-      MetricName: ConformityMetrics
-      Namespace: LambdaMetrics
+      Namespace: !Ref ConformityMetricsNamespace
+      MetricName: !Ref ConformityMetricsName
       ComparisonOperator: GreaterThanOrEqualToThreshold
       EvaluationPeriods: 1
       Period: 300
       Statistic: Sum
-      Threshold: 1
+      Threshold: !Ref ConformityAlarmThreshold
   AlarmNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: "CloudConformityAlarmTopic"
       Subscription:
-        - Endpoint: "johannes@guardrail.me"
+        - Endpoint: !Ref AlarmEmail
           Protocol: email
