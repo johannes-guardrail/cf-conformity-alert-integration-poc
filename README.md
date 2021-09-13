@@ -15,7 +15,7 @@ aws cloudformation deploy \
   --stack-name Conformity-SNS  \
   --region us-west-2  \
   --template-file aws-sns.yaml \
-  --parameter-overrides AlarmEmail=johannes@guardrail.me \
+  --parameter-overrides AlarmEmail=<YOUR EMAIL> \
   --capabilities CAPABILITY_IAM
 ```
 
