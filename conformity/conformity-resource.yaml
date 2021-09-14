@@ -1,28 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Setup Conformity AWS Account with external ID
+
+# TODO:
+# - AWS AZ Mapping to Conformity: Conformity Supports eu-west-1, us-west-2, ap-southeast-2, ap-south-1, eu-west-2
+
+Parameters: 
+  ConformityApiKey: 
+    Description: Conformity API Key
+    Type: String
+    NoEcho: true
+
+
 Resources:
-  CustomFunction:
+  ConformityExternalIdFunction:
     Type: AWS::Lambda::Function
     Properties:
+      Timeout: 15
+      Environment:
+        Variables:
+          CONFORMITY_API_KEY: !Ref ConformityApiKey
       Code:
         ZipFile: |
             import json
             import cfnresponse
+            import urllib.request
+            import os
+
+            conformityApiKey = os.getenv('CONFORMITY_API_KEY')
+
+            headers = {
+              "Content-Type": "application/vnd.api+json",
+              "Authorization": "ApiKey " + conformityApiKey
+            }
+            # TODO: resolve AZ mapping to Conformity Regions
+            region = "us-west-2"
+            externalIdEndpoint = "/v1/organisation/external-id/"
+            requestUrl = "https://" + region + "-api.cloudconformity.com" + externalIdEndpoint
+
             def handler(event, context):
               try:
-                print("conformity handler")
-                print(event['RequestType'])
                 responseData = {}
                 if event["RequestType"] == "Delete":
-                  responseData['Message'] = "Delete was successful"
+                  responseData['Message'] = "Delete not supported"
                 elif event["RequestType"] in ["Create", "Update"]:
-                  print(event['ResourceProperties']['Input'])
-                  responseData['Input'] = event['RequestType']
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "CustomResourcePhysicalID")
+                  req = urllib.request.Request(requestUrl, headers = headers)
+                  with urllib.request.urlopen(req) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                  externalId = body['data']['id']
+                  responseData['ExternalId'] = externalId
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "ConformityExternalIdCustomResourcePhysicalID")
               except Exception as e:
-                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "CustomResourcePhysicalID")
+                print("Exception occured:")
+                print(e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "ConformityExternalIdCustomResourcePhysicalID")
       Handler: index.handler
-      Role: !GetAtt CustomFunctionRole.Arn
+      Role: !GetAtt ConformityFunctionRole.Arn
       Runtime: python3.6
-  CustomFunctionRole:
+  ConformityFunctionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -36,8 +70,102 @@ Resources:
                 - lambda.amazonaws.com
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-  Custom:
-    Type: Custom::ConformitySetup
+  ConformityExternalIdCustomResource:
+    Type: Custom::ConformityExternalId
     Properties:
-      ServiceToken: !GetAtt CustomFunction.Arn
-      Input: 100
+      ServiceToken: !GetAtt ConformityExternalIdFunction.Arn
+  ConformityCloudformationStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      Parameters:
+        AccountId: 717210094962
+        ExternalId: !GetAtt ConformityExternalIdCustomResource.ExternalId
+      TemplateURL: 'https://s3-us-west-2.amazonaws.com/cloudconformity/CloudConformity.template'
+  ConformityAwsAccountFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 15
+      Environment:
+        Variables:
+          CONFORMITY_API_KEY: !Ref ConformityApiKey
+          CONFORMITY_STACK_ROLE_ARN: !GetAtt ConformityCloudformationStack.Outputs.CloudConformityRoleArn
+          CONFORMITY_AWS_ENVIRONMENT: CF-Test-Environment
+          CONFORMITY_AWS_ACCOUNT_NAME: CF-Test-Account
+          EXTERNAL_ID: !GetAtt ConformityExternalIdCustomResource.ExternalId
+      Code:
+        ZipFile: |
+            import json
+            import cfnresponse
+            import urllib.request
+            import os
+
+            conformityApiKey = os.getenv('CONFORMITY_API_KEY')
+            conformityStackRoleArn = os.getenv('CONFORMITY_STACK_ROLE_ARN')
+            conformityAwsEnvironment = os.getenv('CONFORMITY_AWS_ENVIRONMENT')
+            conformityAwsAccountName = os.getenv('CONFORMITY_AWS_ACCOUNT_NAME')
+            externalId = os.getenv('EXTERNAL_ID')
+
+            headers = {
+              "Content-Type": "application/vnd.api+json",
+              "Authorization": "ApiKey " + conformityApiKey
+            }
+            # TODO: resolve AZ mapping to Conformity Regions
+            region = "us-west-2"
+            accountsEndpoint = "/v1/accounts/"
+            requestUrl = "https://" + region + "-api.cloudconformity.com" + accountsEndpoint
+
+            def handler(event, context):
+              try:
+                responseData = {}
+                if event["RequestType"] == "Delete":
+                  accountId = event['ResourceProperties']['AccountId']
+                  # TODO : throw error if property not set
+                  req = urllib.request.Request(requestUrl + accountId, headers = headers)
+                  urllib.request.delete(req)
+                  responseData['Message'] = "Delete was successful"
+                elif event["RequestType"] == "Create":
+                  print("HERE CREATE")
+                  req = urllib.request.Request(requestUrl, headers = headers)
+                  accountDict = {
+                    "data": {
+                      "type": "account",
+                      "attributes": {
+                        "name": conformityAwsAccountName,
+                        "environment": conformityAwsEnvironment,
+                        "access": {
+                          "keys": {
+                            "roleArn": conformityStackRoleArn,
+                            "externalId": externalId
+                          }
+                        }
+                      }
+                    }
+                  }
+                  jsonData = json.dumps(accountDict)
+                  jsondataasbytes = jsonData.encode('utf-8')
+                  with urllib.request.urlopen(req, jsondataasbytes) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                  accountId = body['data']['id']
+                  responseData['AccountId'] = accountId
+                elif event["RequestType"] == "Update":
+                  responseData['Message'] = "Update not supported"
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "ConformityAwsAccountResourcePhysicalID")
+              except Exception as e:
+                print("Exception occured:")
+                print(e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "ConformityAwsAccountResourcePhysicalID")
+      Handler: index.handler
+      Role: !GetAtt ConformityFunctionRole.Arn
+      Runtime: python3.6
+  ConformityAwsAccountResource:
+    Type: Custom::ConformityAwsAccount
+    Properties:
+      ServiceToken: !GetAtt ConformityAwsAccountFunction.Arn
+Outputs:
+  ConformityExternalId:
+    Description: The External ID of the Conformity Organization
+    Value: !GetAtt ConformityExternalIdCustomResource.ExternalId
+Outputs:
+  ConformityAccountId:
+    Description: The Account ID of the Conformity AWS Account
+    Value: !GetAtt ConformityAwsAccountResource.AccountId

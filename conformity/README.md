@@ -2,6 +2,8 @@
 
 To create a Conformity account you need 
 * an API Key from Conformity
+The stack then will do:
+* get the external ID of the Conformity organization
 * create the CloudConformity Stack
 * create the AWS Account in Conformity
 * configure the SNS communication setting in Conformity for the new Account
@@ -14,5 +16,6 @@ aws cloudformation deploy \
   --stack-name Conformity-Account-Manager  \
   --region us-west-2  \
   --template-file conformity-resource.yaml \
-  --capabilities CAPABILITY_IAM
+  --parameter-overrides ConformityApiKey=<YOUR CONFORMITY API KEY> \
+  --capabilities CAPABILITY_NAMED_IAM
 ```
