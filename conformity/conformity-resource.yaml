@@ -2,14 +2,19 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Setup Conformity AWS Account with external ID
 
 # TODO:
-# - AWS AZ Mapping to Conformity: Conformity Supports eu-west-1, us-west-2, ap-southeast-2, ap-south-1, eu-west-2
+# - AWS Region Mapping to Conformity: Conformity Supports eu-west-1, us-west-2, ap-southeast-2, ap-south-1, eu-west-2
 
 Parameters: 
   ConformityApiKey: 
     Description: Conformity API Key
     Type: String
     NoEcho: true
-
+  ConformityAwsAccountName: 
+    Description: Conformity AWS Account Name
+    Type: String
+  ConformityAwsEnvironmentName: 
+    Description: Conformity AWS Environment Name
+    Type: String
 
 Resources:
   ConformityExternalIdFunction:
@@ -19,6 +24,7 @@ Resources:
       Environment:
         Variables:
           CONFORMITY_API_KEY: !Ref ConformityApiKey
+          CONFORMITY_REGION: !Ref AWS::Region
       Code:
         ZipFile: |
             import json
@@ -27,15 +33,15 @@ Resources:
             import os
 
             conformityApiKey = os.getenv('CONFORMITY_API_KEY')
+            conformityRegion = os.getenv('CONFORMITY_REGION')
 
             headers = {
               "Content-Type": "application/vnd.api+json",
               "Authorization": "ApiKey " + conformityApiKey
             }
-            # TODO: resolve AZ mapping to Conformity Regions
-            region = "us-west-2"
+
             externalIdEndpoint = "/v1/organisation/external-id/"
-            requestUrl = "https://" + region + "-api.cloudconformity.com" + externalIdEndpoint
+            requestUrl = "https://" + conformityRegion + "-api.cloudconformity.com" + externalIdEndpoint
 
             def handler(event, context):
               try:
@@ -89,9 +95,10 @@ Resources:
         Variables:
           CONFORMITY_API_KEY: !Ref ConformityApiKey
           CONFORMITY_STACK_ROLE_ARN: !GetAtt ConformityCloudformationStack.Outputs.CloudConformityRoleArn
-          CONFORMITY_AWS_ENVIRONMENT: CF-Test-Environment
-          CONFORMITY_AWS_ACCOUNT_NAME: CF-Test-Account
+          CONFORMITY_AWS_ENVIRONMENT: !Ref ConformityAwsEnvironmentName
+          CONFORMITY_AWS_ACCOUNT_NAME: !Ref ConformityAwsAccountName
           EXTERNAL_ID: !GetAtt ConformityExternalIdCustomResource.ExternalId
+          CONFORMITY_REGION: !Ref AWS::Region
       Code:
         ZipFile: |
             import json
@@ -104,27 +111,34 @@ Resources:
             conformityAwsEnvironment = os.getenv('CONFORMITY_AWS_ENVIRONMENT')
             conformityAwsAccountName = os.getenv('CONFORMITY_AWS_ACCOUNT_NAME')
             externalId = os.getenv('EXTERNAL_ID')
+            conformityRegion = os.getenv('CONFORMITY_REGION')
 
             headers = {
               "Content-Type": "application/vnd.api+json",
               "Authorization": "ApiKey " + conformityApiKey
             }
-            # TODO: resolve AZ mapping to Conformity Regions
-            region = "us-west-2"
+
             accountsEndpoint = "/v1/accounts/"
-            requestUrl = "https://" + region + "-api.cloudconformity.com" + accountsEndpoint
+            requestUrl = "https://" + conformityRegion + "-api.cloudconformity.com" + accountsEndpoint
 
             def handler(event, context):
               try:
+                print("Request Type: " + event["RequestType"])
                 responseData = {}
                 if event["RequestType"] == "Delete":
-                  accountId = event['ResourceProperties']['AccountId']
-                  # TODO : throw error if property not set
-                  req = urllib.request.Request(requestUrl + accountId, headers = headers)
-                  urllib.request.delete(req)
-                  responseData['Message'] = "Delete was successful"
+                  # get all accounts
+                  req = urllib.request.Request(requestUrl, headers = headers)
+                  with urllib.request.urlopen(req) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                  # iterate over all accounts and find the current account by name and environment
+                  # this is not a unique key but it is most unlikely that customers do not create duplicates
+                  for account in body['data']:
+                    if account['attributes']['environment'] == conformityAwsEnvironment and account['attributes']['name'] == conformityAwsAccountName:
+                      accountId = account['id']
+                      req = urllib.request.Request(requestUrl + accountId, headers = headers, method='DELETE')
+                      urllib.request.urlopen(req)
+                  responseData['Message'] = "Delete successful"
                 elif event["RequestType"] == "Create":
-                  print("HERE CREATE")
                   req = urllib.request.Request(requestUrl, headers = headers)
                   accountDict = {
                     "data": {
@@ -161,11 +175,102 @@ Resources:
     Type: Custom::ConformityAwsAccount
     Properties:
       ServiceToken: !GetAtt ConformityAwsAccountFunction.Arn
+  ConformitySnsSettingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 15
+      Environment:
+        Variables:
+          CONFORMITY_API_KEY: !Ref ConformityApiKey
+          CONFORMITY_SNS_ARN: !ImportValue 'Conformity-SNS-SNSTopicArn'
+          CONFORMITY_AWS_ACCOUNT_ID: !GetAtt ConformityAwsAccountResource.AccountId
+          CONFORMITY_REGION: !Ref AWS::Region
+      Code:
+        ZipFile: |
+            import json
+            import cfnresponse
+            import urllib.request
+            import os
+            import urllib.parse
+
+            conformityApiKey = os.getenv('CONFORMITY_API_KEY')
+            conformitySnsArn = os.getenv('CONFORMITY_SNS_ARN')
+            conformityAwsAccountId = os.getenv('CONFORMITY_AWS_ACCOUNT_ID')
+            conformityRegion = os.getenv('CONFORMITY_REGION')
+            snsChannelName = "conformity-sns"
+
+            headers = {
+              "Content-Type": "application/vnd.api+json",
+              "Authorization": "ApiKey " + conformityApiKey
+            }
+            communicationSettingsEndpoint = "/v1/settings/communication/"
+            requestUrl = "https://" + conformityRegion + "-api.cloudconformity.com" + communicationSettingsEndpoint
+
+            def handler(event, context):
+              try:
+                print("Request Type: " + event["RequestType"])
+                responseData = {}
+                if event["RequestType"] == "Delete":
+                  # get all sns settings
+                  req = urllib.request.Request(requestUrl + "?channel=sns&accountId=" + conformityAwsAccountId , headers = headers)
+                  with urllib.request.urlopen(req) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                  # remove the setting with the specific arn
+                  for setting in body['data']:
+                    if setting['attributes']['configuration']['channelName'] == snsChannelName and setting['attributes']['configuration']['arn'] == conformitySnsArn:
+                      settingId = setting['id']
+                      req = urllib.request.Request(requestUrl + settingId, headers = headers, method='DELETE')
+                      urllib.request.urlopen(req)
+                  responseData['Message'] = "Delete successful"
+                elif event["RequestType"] == "Create":
+                  req = urllib.request.Request(requestUrl, headers = headers)
+                  settingDict = {
+                    "data": {
+                      "type": "settings",
+                      "attributes": {
+                        "type": "communication",
+                        "channel": "sns",
+                        "enabled": True,
+                        "configuration": {
+                          "channelName": snsChannelName,
+                          "arn": conformitySnsArn
+                        }
+                      },
+                      "relationships": {
+                        "account": {
+                          "data": {
+                            "type": "accounts",
+                            "id": conformityAwsAccountId
+                          }
+                        }
+                      }
+                    }
+                  }
+                  jsonData = json.dumps(settingDict)
+                  jsondataasbytes = jsonData.encode('utf-8')
+                  with urllib.request.urlopen(req, jsondataasbytes) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+                  settingId = body['data'][0]['id']
+                  responseData['CommunicationSettingId'] = settingId
+                elif event["RequestType"] == "Update":
+                  responseData['Message'] = "Update not supported"
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "ConformityAwsAccountResourcePhysicalID")
+              except Exception as e:
+                print("Exception occured:")
+                print(e)
+                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "ConformityAwsAccountResourcePhysicalID")
+      Handler: index.handler
+      Role: !GetAtt ConformityFunctionRole.Arn
+      Runtime: python3.6
+  ConformitySnsSettingResource:
+    Type: Custom::ConformitySnsSettingFunction
+    Properties:
+      ServiceToken: !GetAtt ConformitySnsSettingFunction.Arn
+
 Outputs:
   ConformityExternalId:
     Description: The External ID of the Conformity Organization
     Value: !GetAtt ConformityExternalIdCustomResource.ExternalId
-Outputs:
   ConformityAccountId:
     Description: The Account ID of the Conformity AWS Account
     Value: !GetAtt ConformityAwsAccountResource.AccountId

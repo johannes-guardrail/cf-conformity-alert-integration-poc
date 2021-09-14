@@ -16,6 +16,6 @@ aws cloudformation deploy \
   --stack-name Conformity-Account-Manager  \
   --region us-west-2  \
   --template-file conformity-resource.yaml \
-  --parameter-overrides ConformityApiKey=<YOUR CONFORMITY API KEY> \
+  --parameter-overrides ConformityApiKey=<YOUR CONFORMITY API KEY> ConformityAwsAccountName=GR-CF-Test-Account ConformityAwsEnvironmentName=dev \
   --capabilities CAPABILITY_NAMED_IAM
 ```
