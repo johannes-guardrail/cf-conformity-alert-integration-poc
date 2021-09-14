@@ -213,3 +213,11 @@ Resources:
       Subscription:
         - Endpoint: !Ref AlarmEmail
           Protocol: email
+
+Outputs:
+  ConformitySNSTopicArn:
+    Description: ARN of the SNS Topic for Conformity
+    Value: !Ref ConformitySNSTopic
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-SNSTopicArn'

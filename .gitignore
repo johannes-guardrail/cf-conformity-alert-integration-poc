@@ -1,6 +1,6 @@
 *.tfvars
 terraform.tfplan
-terraform.tfstate
+terraform.tfstate*
 ./*.tfstate
 .terraform/
 .terraform*

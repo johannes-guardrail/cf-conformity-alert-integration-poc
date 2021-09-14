@@ -211,16 +211,7 @@ Resources:
                 print("Request Type: " + event["RequestType"])
                 responseData = {}
                 if event["RequestType"] == "Delete":
-                  # get all sns settings
-                  req = urllib.request.Request(requestUrl + "?channel=sns&accountId=" + conformityAwsAccountId , headers = headers)
-                  with urllib.request.urlopen(req) as resp:
-                    body = json.loads(resp.read().decode("utf-8"))
-                  # remove the setting with the specific arn
-                  for setting in body['data']:
-                    if setting['attributes']['configuration']['channelName'] == snsChannelName and setting['attributes']['configuration']['arn'] == conformitySnsArn:
-                      settingId = setting['id']
-                      req = urllib.request.Request(requestUrl + settingId, headers = headers, method='DELETE')
-                      urllib.request.urlopen(req)
+                  # when deleting the account, the communication settings will be deleted automatically
                   responseData['Message'] = "Delete successful"
                 elif event["RequestType"] == "Create":
                   req = urllib.request.Request(requestUrl, headers = headers)
@@ -254,11 +245,11 @@ Resources:
                   responseData['CommunicationSettingId'] = settingId
                 elif event["RequestType"] == "Update":
                   responseData['Message'] = "Update not supported"
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "ConformityAwsAccountResourcePhysicalID")
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "ConformitySnsSettingResourcePhysicalID")
               except Exception as e:
                 print("Exception occured:")
                 print(e)
-                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "ConformityAwsAccountResourcePhysicalID")
+                cfnresponse.send(event, context, cfnresponse.FAILED, {}, "ConformitySnsSettingResourcePhysicalID")
       Handler: index.handler
       Role: !GetAtt ConformityFunctionRole.Arn
       Runtime: python3.6
